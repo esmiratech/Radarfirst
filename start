@@ -1,0 +1,110 @@
+#!/bin/bash
+
+[ "$UID" -eq 0 ] || exec sudo sh "$0" "$@"
+# ask for sudo if needed. $UID is 0 for root.
+
+SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+WORK_DIR=$(dirname "$(readlink -f "$0")")
+
+source $WORK_DIR/lib/util.sh
+COMPOSE="docker compose -f $WORK_DIR/docker-compose.yaml"
+GUM="$WORK_DIR/lib/gum-linux-x86_64"
+
+# ------------------------------------------------ header -- ;
+clear
+
+container_list=$($COMPOSE ps --format "table {{.Name}}\t{{.Image}}\t{{.State}}")
+container_count=$(echo "$container_list" | wc -l)
+
+if [ $container_count -gt 1 ]; then
+$GUM style \
+    --foreground FFF --border-foreground FFF --border double \
+    --align center --width 60 --margin "1 0" --padding "1 2" \
+    "Radar Docker Project (by Esmira Bayramova)" \
+    "" \
+    "$container_list"
+else
+$GUM style \
+    --foreground FFF --border-foreground FFF --border double \
+    --align center --width 60 --margin "1 0" --padding "1 2" \
+    "Radar Docker Project (by Esmira Bayramova)"
+fi
+
+
+# -------------------------------------------------- menu -- ;
+
+menu=("Build Project")
+menu+=("Launch Project")
+    if [ $container_count -gt 1 ]; then
+        menu+=("• Stop Project")
+        menu+=("• Show Logs")
+    fi
+menu+=("Reset Project 🌟")
+menu+=("Exit Menu")
+
+if [[ $container_list =~ "radar-ui" ]]; then
+    echo -e "  Access the UI at http://localhost:4200\n"
+fi
+
+selected=$(printf "%s\n" "${menu[@]}" | $GUM choose --header="" --selected="$SELECTED" --height 30 )
+
+case "$selected" in
+    "Build Project")
+        $COMPOSE build --no-cache
+        pause
+        exec "$0" "$selected"
+    ;;
+
+    "• Stop Project")
+        $COMPOSE down --timeout=0
+        pause
+        exec "$0" "$selected"
+    ;;
+    "• Show Logs")
+        $COMPOSE logs --since 1h -f
+        pause
+        exec "$0" "$selected"
+    ;;
+
+    "Exit Menu")
+        $GUM log --level info "Thank you for stopping by. Good bye."
+        echo ""
+    ;;
+
+    "Launch Project")
+        $GUM log --level info "Launching project."
+        $COMPOSE up --remove-orphans -d 
+        pause
+        exec "$0" "$selected"
+
+    ;;
+
+    "Reset Project 🌟")
+        $GUM confirm --selected.background="#CC66CC" --prompt.foreground="#FF3333" \
+        "$(printf 'This will DELETE all containers in this project.\n\nAre you ABSOLUTELY sure you wish to proceed?')" \
+            && { 
+                $GUM log --level info "Removing docker volumes and images..";
+                $COMPOSE down --volumes --remove-orphans --rmi all; \
+
+                $GUM log --level info "Shutting down.";
+                docker container kill radar-api >/dev/null 2>&1; \
+                docker container kill radar-ui >/dev/null 2>&1; \
+                docker container kill radar-pg >/dev/null 2>&1; \
+                docker container kill radar-grpc >/dev/null 2>&1; \
+
+
+                $GUM log --level info "Deleting containers.";
+                docker container rm radar-api >/dev/null 2>&1; \
+                docker container rm radar-ui >/dev/null 2>&1; \
+                docker container rm radar-pg >/dev/null 2>&1; \
+                docker container rm radar-grpc >/dev/null 2>&1; \
+
+                $GUM log --level info "Deleting docker network.";
+                docker network rm esmira_net >/dev/null 2>&1; \
+                pause; }
+        
+        exec "$0" "$selected"
+    ;;
+
+esac
+
